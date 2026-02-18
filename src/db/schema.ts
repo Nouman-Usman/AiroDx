@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, jsonb, varchar, boolean, date } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, jsonb, varchar, boolean, date, index } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Users table
@@ -42,6 +42,10 @@ export const patients = pgTable('patients', {
   riskNotes: text('risk_notes'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    userIdIdx: index('patients_user_id_idx').on(table.userId),
+  };
 });
 
 // Visits table
@@ -80,6 +84,11 @@ export const visits = pgTable('visits', {
   }>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    userIdIdx: index('visits_user_id_idx').on(table.userId),
+    patientIdIdx: index('visits_patient_id_idx').on(table.patientId),
+  };
 });
 
 // Notes table
@@ -105,6 +114,11 @@ export const notes = pgTable('notes', {
   isArchived: boolean('is_archived').default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    userIdIdx: index('notes_user_id_idx').on(table.userId),
+    patientIdIdx: index('notes_patient_id_idx').on(table.patientId),
+  };
 });
 
 // User settings table

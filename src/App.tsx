@@ -10,9 +10,10 @@ import SettingsPage from '@/pages/SettingsPage';
 import ChatPage from '@/pages/ChatPage';
 import PatientsPage from '@/pages/PatientsPage';
 import PatientDetailPage from '@/pages/PatientDetailPage';
+import ImageAnalysisPage from '@/pages/ImageAnalysisPage';
 import type { StructuredData } from '@/types/structuredData';
 
-export type Page = 'landing' | 'auth' | 'dashboard' | 'recording' | 'note' | 'past-notes' | 'settings' | 'chat' | 'patients' | 'patient' | 'patient-recording';
+export type Page = 'landing' | 'auth' | 'dashboard' | 'recording' | 'note' | 'past-notes' | 'settings' | 'chat' | 'patients' | 'patient' | 'patient-recording' | 'image-analysis';
 
 export interface User {
   id?: string;
@@ -102,6 +103,8 @@ export interface Visit {
   };
 }
 
+import QueryProviders from '@/components/providers/QueryProviders';
+
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>('landing');
   const [user, setUser] = useState<User | null>(null);
@@ -161,7 +164,7 @@ function App() {
   };
 
   return (
-    <>
+    <QueryProviders>
       {currentPage === 'landing' && (
         <LandingPage onNavigate={(page) => navigateTo(page as Page || 'auth')} />
       )}
@@ -169,9 +172,9 @@ function App() {
         <AuthPage onLogin={handleLogin} onBack={() => navigateTo('landing')} />
       )}
       {currentPage === 'dashboard' && user && (
-        <Dashboard 
-          user={user} 
-          onNavigate={navigateTo} 
+        <Dashboard
+          user={user}
+          onNavigate={navigateTo}
           onLogout={handleLogout}
           onNoteSelect={(note) => {
             setCurrentNote(note);
@@ -180,26 +183,26 @@ function App() {
         />
       )}
       {currentPage === 'recording' && user && (
-        <RecordingPage 
-          user={user} 
-          onNavigate={navigateTo} 
+        <RecordingPage
+          user={user}
+          onNavigate={navigateTo}
           onLogout={handleLogout}
           onNoteCreated={handleNoteCreated}
         />
       )}
       {currentPage === 'note' && user && currentNote && (
-        <NotePage 
-          user={user} 
+        <NotePage
+          user={user}
           note={currentNote}
-          onNavigate={navigateTo} 
+          onNavigate={navigateTo}
           onLogout={handleLogout}
           onNoteDeleted={() => setCurrentNote(null)}
         />
       )}
       {currentPage === 'past-notes' && user && (
-        <PastNotesPage 
-          user={user} 
-          onNavigate={navigateTo} 
+        <PastNotesPage
+          user={user}
+          onNavigate={navigateTo}
           onLogout={handleLogout}
           onNoteSelect={(note) => {
             setCurrentNote(note);
@@ -214,40 +217,47 @@ function App() {
         <ChatPage user={user} onNavigate={navigateTo} onLogout={handleLogout} />
       )}
       {currentPage === 'patients' && user && (
-        <PatientsPage 
-          user={user} 
-          onNavigate={navigateTo} 
-          onViewPatient={handlePatientSelect} 
+        <PatientsPage
+          user={user}
+          onNavigate={navigateTo}
+          onViewPatient={handlePatientSelect}
           onStartRecording={handleStartRecordingForPatient}
           onPatientAdded={handlePatientAdded}
-          onLogout={handleLogout} 
+          onLogout={handleLogout}
+        />
+      )}
+      {currentPage === 'image-analysis' && user && (
+        <ImageAnalysisPage
+          user={user}
+          onNavigate={navigateTo}
+          onLogout={handleLogout}
         />
       )}
       {currentPage === 'patient' && user && currentPatient && (
-        <PatientDetailPage 
-          user={user} 
-          patient={currentPatient} 
-          onNavigate={navigateTo} 
+        <PatientDetailPage
+          user={user}
+          patient={currentPatient}
+          onNavigate={navigateTo}
           onStartRecording={handleStartRecordingForPatient}
           onViewNote={(note) => {
             setCurrentNote(note);
             navigateTo('note');
           }}
           onPatientUpdated={(updatedPatient) => setCurrentPatient(updatedPatient)}
-          onLogout={handleLogout} 
+          onLogout={handleLogout}
         />
       )}
       {currentPage === 'patient-recording' && user && recordingForPatient && (
-        <RecordingPage 
-          user={user} 
+        <RecordingPage
+          user={user}
           patient={recordingForPatient}
-          onNavigate={navigateTo} 
+          onNavigate={navigateTo}
           onLogout={handleLogout}
           onNoteCreated={handleNoteCreated}
         />
       )}
       <Toaster />
-    </>
+    </QueryProviders>
   );
 }
 

@@ -1,30 +1,30 @@
-import { useEffect, useState, useMemo } from 'react';
-import { 
-  FileText, Clock, Activity, Plus, Users, AlertTriangle, 
+
+import { useMemo } from 'react';
+import {
+  FileText, Clock, Activity, Plus, Users, AlertTriangle,
   TrendingUp, Calendar, ChevronRight, Heart, Shield,
-  BarChart3, ArrowUpRight, ArrowDownRight, Minus
+  BarChart3, ArrowUpRight, ArrowDownRight, Minus, Zap
 } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { startOfDay, format } from 'date-fns';
+
+// Hooks
 import { useDatabase } from '@/hooks/useDatabase';
-import { 
-  getDashboardStats, 
-  getHighRiskPatients, 
-  getVisitTrends, 
-  getRecentActivity,
-  getUpcomingFollowUps,
-  type DashboardStats,
-  type VisitTrendData,
-  type RecentActivity
-} from '@/db/services';
-import type { User, Page, Note } from '@/App';
+import { useDashboardStats, useVisitTrends, useRecentActivity, usePatients } from '@/hooks/useQueries';
+
+// Charts
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Legend
 } from 'recharts';
+
+import type { User, Page, Note } from '@/App';
 
 interface DashboardProps {
   user: User;
@@ -33,105 +33,41 @@ interface DashboardProps {
   onNoteSelect?: (note: Note) => void;
 }
 
-const RISK_COLORS = { low: '#22c55e', medium: '#eab308', high: '#ef4444' };
+const COLORS = {
+  primary: '#0ea5e9', // Sky 500
+  secondary: '#6366f1', // Indigo 500
+  success: '#22c55e', // Green 500
+  warning: '#eab308', // Yellow 500
+  danger: '#ef4444', // Red 500
+  neutral: '#94a3b8', // Slate 400
+};
 
-export default function Dashboard({ user, onNavigate, onLogout, onNoteSelect }: DashboardProps) {
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [highRiskPatientsList, setHighRiskPatientsList] = useState<Array<{
-    id: string;
-    name: string;
-    age: number;
-    gender: string;
-    riskLevel?: string;
-    riskScore?: number;
-    riskFactors?: string[];
-  }>>([]);
-  const [visitTrends, setVisitTrends] = useState<VisitTrendData[]>([]);
-  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
-  const [upcomingFollowUps, setUpcomingFollowUps] = useState<Array<{
-    patientId: string;
-    patientName: string;
-    followUpDate: string;
-    reason: string;
-    riskLevel?: string;
-  }>>([]);
-  const { fetchNotes, isLoading: dbLoading } = useDatabase();
+export default function Dashboard({ user, onNavigate, onLogout }: DashboardProps) {
+  // Data Fetching via React Query
+  const { data: stats, isLoading: statsLoading } = useDashboardStats(user.id);
+  const { data: visitTrends, isLoading: trendsLoading } = useVisitTrends(user.id, 30);
+  const { data: recentActivity, isLoading: activityLoading } = useRecentActivity(user.id, 5);
+  const { data: patients } = usePatients(user.id);
 
-  useEffect(() => {
-    const loadDashboardData = async () => {
-      try {
-        if (user.id) {
-          // Fetch all data in parallel
-          const [
-            dbNotes,
-            dashboardStats,
-            riskPatients,
-            trends,
-            activity,
-            followUps
-          ] = await Promise.all([
-            fetchNotes(user.id),
-            getDashboardStats(user.id),
-            getHighRiskPatients(user.id),
-            getVisitTrends(user.id, 30),
-            getRecentActivity(user.id, 10),
-            getUpcomingFollowUps(user.id)
-          ]);
+  const isLoading = statsLoading || trendsLoading || activityLoading;
 
-          setNotes(dbNotes);
-          setStats(dashboardStats);
-          setHighRiskPatientsList(riskPatients);
-          setVisitTrends(trends);
-          setRecentActivity(activity);
-          setUpcomingFollowUps(followUps);
-        }
-      } catch (err) {
-        console.error('Error fetching dashboard data:', err);
-        setNotes([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    loadDashboardData();
-  }, [user.id, fetchNotes]);
-
-  // Calculate derived stats
-  const totalMinutes = notes.reduce((sum, note) => sum + note.duration, 0);
-  const timesSaved = Math.round((totalMinutes * 2) / 60); // Assuming 2x time saved
-
-  // Prepare chart data
-  const riskPieData = useMemo(() => {
-    if (!stats) return [];
-    return [
-      { name: 'Low Risk', value: stats.riskDistribution.low, color: RISK_COLORS.low },
-      { name: 'Medium Risk', value: stats.riskDistribution.medium, color: RISK_COLORS.medium },
-      { name: 'High Risk', value: stats.riskDistribution.high, color: RISK_COLORS.high },
-    ].filter(d => d.value > 0);
+  // Derived Stats
+  const timeSaved = useMemo(() => {
+    if (!stats) return 0;
+    // Assuming automation saves 50% of time per visit content gen
+    const manualTimePerNote = 15; // mins
+    return Math.round((stats.totalNotes * manualTimePerNote) / 60);
   }, [stats]);
 
-  const ageBarData = useMemo(() => {
-    if (!stats) return [];
-    return [
-      { name: '<30', value: stats.patientsByAgeGroup.under30 },
-      { name: '30-50', value: stats.patientsByAgeGroup.age30to50 },
-      { name: '50-70', value: stats.patientsByAgeGroup.age50to70 },
-      { name: '70+', value: stats.patientsByAgeGroup.over70 },
-    ];
-  }, [stats]);
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 18) return 'Good afternoon';
+    return 'Good evening';
+  }, []);
 
-  const visitTypeData = useMemo(() => {
-    if (!stats) return [];
-    return Object.entries(stats.visitsByType).map(([name, value]) => ({
-      name: name.charAt(0).toUpperCase() + name.slice(1),
-      value
-    }));
-  }, [stats]);
-
-  // Weekly trend summary
   const weeklyTrend = useMemo(() => {
-    if (visitTrends.length < 14) return { change: 0, direction: 'neutral' };
+    if (!visitTrends || visitTrends.length < 14) return { change: 0, direction: 'neutral' };
     const lastWeek = visitTrends.slice(-7).reduce((sum, d) => sum + d.visits, 0);
     const prevWeek = visitTrends.slice(-14, -7).reduce((sum, d) => sum + d.visits, 0);
     const change = prevWeek > 0 ? Math.round(((lastWeek - prevWeek) / prevWeek) * 100) : 0;
@@ -141,448 +77,322 @@ export default function Dashboard({ user, onNavigate, onLogout, onNoteSelect }: 
     };
   }, [visitTrends]);
 
-  if (isLoading || dbLoading) {
+  // Loading State
+  if (isLoading) {
     return (
       <DashboardLayout user={user} currentPage="dashboard" onNavigate={onNavigate} onLogout={onLogout}>
-        <div className="flex items-center justify-center py-12">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Loading dashboard data...</p>
+        <div className="h-full flex flex-col items-center justify-center space-y-4">
+          <div className="relative w-16 h-16">
+            <div className="absolute inset-0 border-4 border-muted/30 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin"></div>
           </div>
+          <p className="text-muted-foreground font-medium animate-pulse">Loading Analytics...</p>
         </div>
       </DashboardLayout>
     );
   }
 
-  const hasData = stats && (stats.totalPatients > 0 || stats.totalVisits > 0 || notes.length > 0);
+  const hasData = stats && (stats.totalPatients > 0 || stats.totalVisits > 0);
 
   return (
     <DashboardLayout user={user} currentPage="dashboard" onNavigate={onNavigate} onLogout={onLogout}>
-      <div className="space-y-6 animate-fade-in">
-        {/* Welcome Section */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+
+        {/* Helper Header & Quick Actions */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-1">
-              Welcome back, Dr. {user.name.split(' ').pop()}
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+              {greeting}, Dr. {user.name.split(' ').pop()}
             </h1>
-            <p className="text-sm text-muted-foreground">
-              {user.specialty} • {user.practiceName} • {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            <p className="text-muted-foreground mt-1 flex items-center gap-2">
+              <Calendar className="w-4 h-4" />
+              {format(new Date(), 'EEEE, MMMM do, yyyy')}
+              <span className="hidden sm:inline text-muted-foreground/30">•</span>
+              <span className="hidden sm:inline">{user.specialty} • {user.practiceName}</span>
             </p>
           </div>
-          <Button onClick={() => onNavigate('recording')} size="lg">
-            <Plus className="w-5 h-5 mr-2" />
-            New Recording
-          </Button>
-        </div>
 
-        {/* Quick Stats Overview */}
-        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-          <Card className="border-l-4 border-l-primary">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Patients</CardTitle>
-              <Users className="h-4 w-4 text-primary" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats?.activePatients || 0}</div>
-              <p className="text-xs text-muted-foreground">
-                {stats?.totalPatients || 0} total registered
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-red-500">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">High Risk</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-red-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600">{stats?.highRiskPatients || 0}</div>
-              <p className="text-xs text-muted-foreground">
-                Patients requiring attention
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-green-500">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Visits This Month</CardTitle>
-              <Activity className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats?.visitsThisMonth || 0}</div>
-              <div className="flex items-center text-xs">
-                {weeklyTrend.direction === 'up' && (
-                  <>
-                    <ArrowUpRight className="h-3 w-3 text-green-500 mr-1" />
-                    <span className="text-green-500">+{weeklyTrend.change}% vs last week</span>
-                  </>
-                )}
-                {weeklyTrend.direction === 'down' && (
-                  <>
-                    <ArrowDownRight className="h-3 w-3 text-red-500 mr-1" />
-                    <span className="text-red-500">-{weeklyTrend.change}% vs last week</span>
-                  </>
-                )}
-                {weeklyTrend.direction === 'neutral' && (
-                  <>
-                    <Minus className="h-3 w-3 text-muted-foreground mr-1" />
-                    <span className="text-muted-foreground">No change</span>
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-blue-500">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Time Saved</CardTitle>
-              <Clock className="h-4 w-4 text-blue-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{timesSaved}h</div>
-              <p className="text-xs text-muted-foreground">
-                {notes.length} notes generated
-              </p>
-            </CardContent>
-          </Card>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" className="gap-2 hidden sm:flex" onClick={() => onNavigate('patients')}>
+              <Users className="w-4 h-4" />
+              Patients
+            </Button>
+            <Button className="gap-2 shadow-lg hover:shadow-primary/25 transition-all" onClick={() => onNavigate('recording')}>
+              <Plus className="w-4 h-4" />
+              New Consultation
+            </Button>
+          </div>
         </div>
 
         {!hasData ? (
-          /* Empty State */
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center justify-center py-16">
-              <BarChart3 className="w-16 h-16 text-muted-foreground/30 mb-4" />
-              <h3 className="text-xl font-semibold mb-2">No Data Yet</h3>
-              <p className="text-muted-foreground text-center mb-6 max-w-md">
-                Start by adding patients and recording clinical notes to see your practice analytics and insights here.
-              </p>
-              <div className="flex gap-3">
-                <Button variant="outline" onClick={() => onNavigate('patients')}>
-                  <Users className="w-4 h-4 mr-2" />
-                  Add Patients
-                </Button>
-                <Button onClick={() => onNavigate('recording')}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Start Recording
-                </Button>
+          /* Zero State Dashboard */
+          <Card className="border-dashed py-12 bg-muted/5">
+            <div className="text-center space-y-4 max-w-lg mx-auto">
+              <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
+                <Zap className="w-8 h-8 text-primary" />
               </div>
-            </CardContent>
+              <h2 className="text-2xl font-bold">Get Started with ClinicalScribe</h2>
+              <p className="text-muted-foreground">
+                Your dashboard will populate with real-time analytics once you start seeing patients.
+                Begin by adding a patient or recording your first consultation.
+              </p>
+              <div className="pt-4 flex justify-center gap-3">
+                <Button onClick={() => onNavigate('recording')}>Start First Recording</Button>
+                <Button variant="outline" onClick={() => onNavigate('patients')}>Add Patient</Button>
+              </div>
+            </div>
           </Card>
         ) : (
+          /* Main Dashboard Content */
           <>
-            {/* Main Dashboard Grid */}
-            <div className="grid gap-6 lg:grid-cols-3">
-              {/* Left Column - Charts */}
-              <div className="lg:col-span-2 space-y-6">
-                {/* Visit Trends Chart */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle>Visit Activity</CardTitle>
-                        <CardDescription>Daily visits over the last 30 days</CardDescription>
-                      </div>
-                      <Badge variant="outline">{stats?.totalVisits || 0} total</Badge>
+            {/* KPI Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Patients KPI */}
+              <Card className="hover:shadow-md transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between space-y-0 pb-2">
+                    <p className="text-sm font-medium text-muted-foreground">Total Patients</p>
+                    <Users className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="text-3xl font-bold">{stats?.activePatients}</span>
+                    <span className="text-xs text-muted-foreground">active</span>
+                  </div>
+                  <div className="mt-4 h-1.5 w-full bg-primary/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-primary" style={{ width: `${Math.min(((stats?.activePatients || 0) / 100) * 100, 100)}%` }} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Visits KPI */}
+              <Card className="hover:shadow-md transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between space-y-0 pb-2">
+                    <p className="text-sm font-medium text-muted-foreground">Visits (Month)</p>
+                    <Activity className="h-4 w-4 text-emerald-500" />
+                  </div>
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="text-3xl font-bold">{stats?.visitsThisMonth}</span>
+                    <div className={`flex items-center text-xs px-1.5 py-0.5 rounded-full ${weeklyTrend.direction === 'up' ? 'bg-emerald-100 text-emerald-700' :
+                        weeklyTrend.direction === 'down' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'
+                      }`}>
+                      {weeklyTrend.direction === 'up' ? <ArrowUpRight className="w-3 h-3 mr-1" /> :
+                        weeklyTrend.direction === 'down' ? <ArrowDownRight className="w-3 h-3 mr-1" /> : <Minus className="w-3 h-3 mr-1" />}
+                      {weeklyTrend.change}%
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    {visitTrends.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={250}>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-4">Vs. previous 30 days</p>
+                </CardContent>
+              </Card>
+
+              {/* Risk KPI */}
+              <Card className="hover:shadow-md transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between space-y-0 pb-2">
+                    <p className="text-sm font-medium text-muted-foreground">High Risk</p>
+                    <AlertTriangle className="h-4 w-4 text-red-500" />
+                  </div>
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="text-3xl font-bold text-red-600">{stats?.highRiskPatients}</span>
+                    <span className="text-xs text-muted-foreground">needs review</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-4">{((stats?.highRiskPatients || 0) / (stats?.totalPatients || 1) * 100).toFixed(1)}% of total population</p>
+                </CardContent>
+              </Card>
+
+              {/* Efficiency KPI */}
+              <Card className="hover:shadow-md transition-shadow bg-gradient-to-br from-indigo-500 to-violet-600 text-white border-0">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between space-y-0 pb-2">
+                    <p className="text-sm font-medium text-white/80">Time Saved</p>
+                    <Clock className="h-4 w-4 text-white" />
+                  </div>
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="text-3xl font-bold">{timeSaved}h</span>
+                    <span className="text-xs text-white/60">automated</span>
+                  </div>
+                  <p className="text-xs text-white/80 mt-4">Est. {stats?.totalNotes} notes processed</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Charts Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Main Trend Chart */}
+              <Card className="lg:col-span-2 shadow-sm">
+                <CardHeader>
+                  <CardTitle>Patient Volume</CardTitle>
+                  <CardDescription>Daily visit trends over the last 30 days</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[300px]">
+                    {visitTrends && visitTrends.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={visitTrends}>
                           <defs>
                             <linearGradient id="colorVisits" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                              <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.3} />
+                              <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0} />
                             </linearGradient>
                           </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                          <XAxis 
-                            dataKey="date" 
-                            tick={{ fontSize: 10 }}
-                            tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            interval="preserveStartEnd"
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                          <XAxis
+                            dataKey="date"
+                            fontSize={12}
+                            tickFormatter={(d) => format(new Date(d), 'MMM d')}
+                            tickLine={false}
+                            axisLine={false}
+                            minTickGap={30}
                           />
-                          <YAxis tick={{ fontSize: 10 }} />
-                          <Tooltip 
-                            labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                            formatter={(value: number, name: string) => [value, name === 'visits' ? 'Visits' : 'Avg Risk']}
+                          <YAxis
+                            fontSize={12}
+                            tickLine={false}
+                            axisLine={false}
+                            allowDecimals={false}
                           />
-                          <Area 
-                            type="monotone" 
-                            dataKey="visits" 
-                            stroke="#3b82f6" 
-                            fillOpacity={1} 
-                            fill="url(#colorVisits)" 
+                          <Tooltip
+                            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                            labelStyle={{ color: '#64748b' }}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="visits"
+                            stroke={COLORS.primary}
                             strokeWidth={2}
+                            fillOpacity={1}
+                            fill="url(#colorVisits)"
                           />
                         </AreaChart>
                       </ResponsiveContainer>
                     ) : (
-                      <div className="h-[250px] flex items-center justify-center text-muted-foreground">
-                        No visit data available
-                      </div>
+                      <div className="h-full flex items-center justify-center text-muted-foreground">No trend data available</div>
                     )}
-                  </CardContent>
-                </Card>
+                  </div>
+                </CardContent>
+              </Card>
 
-                {/* Demographics Row */}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {/* Risk Distribution */}
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base">Patient Risk Distribution</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {riskPieData.length > 0 ? (
-                        <div className="flex items-center gap-4">
-                          <ResponsiveContainer width={120} height={120}>
-                            <PieChart>
-                              <Pie
-                                data={riskPieData}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={30}
-                                outerRadius={50}
-                                paddingAngle={2}
-                                dataKey="value"
-                              >
-                                {riskPieData.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={entry.color} />
-                                ))}
-                              </Pie>
-                            </PieChart>
-                          </ResponsiveContainer>
-                          <div className="space-y-2 flex-1">
-                            {riskPieData.map((item) => (
-                              <div key={item.name} className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-                                  <span className="text-sm">{item.name}</span>
-                                </div>
-                                <span className="font-semibold">{item.value}</span>
-                              </div>
+              {/* Risk Breakdown Pie Chart */}
+              <Card className="shadow-sm">
+                <CardHeader>
+                  <CardTitle>Risk Stratification</CardTitle>
+                  <CardDescription>Current patient population risk</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[220px] relative">
+                    {stats && (stats.highRiskPatients + stats.mediumRiskPatients + stats.lowRiskPatients > 0) ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={[
+                              { name: 'Low', value: stats.lowRiskPatients, color: COLORS.success },
+                              { name: 'Medium', value: stats.mediumRiskPatients, color: COLORS.warning },
+                              { name: 'High', value: stats.highRiskPatients, color: COLORS.danger },
+                            ]}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={80}
+                            paddingAngle={5}
+                            dataKey="value"
+                          >
+                            {[{ name: 'Low', color: COLORS.success }, { name: 'Medium', color: COLORS.warning }, { name: 'High', color: COLORS.danger }].map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
                             ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="h-[120px] flex items-center justify-center text-muted-foreground text-sm">
-                          No patient data
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Age Distribution */}
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base">Patient Age Groups</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {ageBarData.some(d => d.value > 0) ? (
-                        <ResponsiveContainer width="100%" height={120}>
-                          <BarChart data={ageBarData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                            <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                            <YAxis tick={{ fontSize: 10 }} />
-                            <Tooltip />
-                            <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="h-[120px] flex items-center justify-center text-muted-foreground text-sm">
-                          No patient data
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Visit Types */}
-                {visitTypeData.length > 0 && (
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base">Visit Types</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        {visitTypeData.map((item) => (
-                          <div key={item.name} className="space-y-1">
-                            <div className="flex items-center justify-between text-sm">
-                              <span>{item.name}</span>
-                              <span className="font-medium">{item.value}</span>
-                            </div>
-                            <Progress 
-                              value={(item.value / (stats?.totalVisits || 1)) * 100} 
-                              className="h-2"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-
-              {/* Right Column - Lists */}
-              <div className="space-y-6">
-                {/* High Risk Patients */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4 text-red-500" />
-                        High Risk Patients
-                      </CardTitle>
-                      <Button variant="ghost" size="sm" onClick={() => onNavigate('patients')}>
-                        View All
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {highRiskPatientsList.length > 0 ? (
-                      highRiskPatientsList.slice(0, 5).map((patient) => (
-                        <div 
-                          key={patient.id} 
-                          className="flex items-center justify-between p-3 rounded-lg bg-red-50 border border-red-100 cursor-pointer hover:bg-red-100 transition-colors"
-                          onClick={() => onNavigate('patients')}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-                              <Heart className="h-5 w-5 text-red-500" />
-                            </div>
-                            <div>
-                              <p className="font-medium text-sm">{patient.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {patient.age}y • {patient.riskFactors?.[0] || 'High risk'}
-                              </p>
-                            </div>
-                          </div>
-                          <Badge variant="destructive" className="text-xs">
-                            {patient.riskScore || 0}%
-                          </Badge>
-                        </div>
-                      ))
+                          </Pie>
+                          <Tooltip />
+                          <Legend verticalAlign="bottom" height={36} />
+                        </PieChart>
+                      </ResponsiveContainer>
                     ) : (
-                      <div className="text-center py-6 text-muted-foreground">
-                        <Shield className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">No high-risk patients</p>
-                      </div>
+                      <div className="h-full flex items-center justify-center text-muted-foreground text-sm">No risk data</div>
                     )}
-                  </CardContent>
-                </Card>
 
-                {/* Upcoming Follow-ups */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-blue-500" />
-                      Upcoming Follow-ups
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {upcomingFollowUps.length > 0 ? (
-                      upcomingFollowUps.slice(0, 5).map((followUp, index) => (
-                        <div 
-                          key={index}
-                          className="flex items-center justify-between p-3 rounded-lg bg-blue-50 border border-blue-100"
-                        >
-                          <div>
-                            <p className="font-medium text-sm">{followUp.patientName}</p>
-                            <p className="text-xs text-muted-foreground">{followUp.reason}</p>
+                    {/* Center Label */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none pb-8">
+                      <div className="text-center">
+                        <span className="text-2xl font-bold">{stats?.totalPatients}</span>
+                        <p className="text-xs text-muted-foreground uppercase">Patients</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Avg Risk Score</span>
+                      <Badge variant={stats?.avgRiskScore && stats.avgRiskScore > 70 ? "destructive" : "outline"}>
+                        {stats?.avgRiskScore || 0}/100
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Bottom Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Recent Activity */}
+              <Card className="shadow-sm">
+                <CardHeader>
+                  <CardTitle>Recent Activity</CardTitle>
+                  <CardDescription>Latest actions and updates</CardDescription>
+                </CardHeader>
+                <ScrollArea className="h-[300px]">
+                  <CardContent className="space-y-4">
+                    {recentActivity && recentActivity.length > 0 ? (
+                      recentActivity.map((activity) => (
+                        <div key={activity.id} className="flex gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors">
+                          <div className={`mt-1 p-2 rounded-full h-fit flex items-center justify-center ${activity.type === 'note' ? 'bg-indigo-100 text-indigo-600' :
+                              activity.type === 'visit' ? 'bg-emerald-100 text-emerald-600' :
+                                'bg-amber-100 text-amber-600'
+                            }`}>
+                            {activity.type === 'note' && <FileText className="w-4 h-4" />}
+                            {activity.type === 'visit' && <Users className="w-4 h-4" />}
+                            {activity.type === 'risk_update' && <AlertTriangle className="w-4 h-4" />}
                           </div>
-                          <div className="text-right">
-                            <p className="text-sm font-medium">
-                              {new Date(followUp.followUpDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </p>
-                            {followUp.riskLevel && (
-                              <Badge 
-                                variant="outline" 
-                                className={`text-xs ${
-                                  followUp.riskLevel === 'high' ? 'border-red-300 text-red-600' :
-                                  followUp.riskLevel === 'medium' ? 'border-yellow-300 text-yellow-600' :
-                                  'border-green-300 text-green-600'
-                                }`}
-                              >
-                                {followUp.riskLevel}
+                          <div className="flex-1 space-y-1">
+                            <div className="flex justify-between items-start">
+                              <p className="font-medium text-sm">{activity.title}</p>
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                {format(new Date(activity.timestamp), 'h:mm a')}
+                              </span>
+                            </div>
+                            <p className="text-sm text-muted-foreground line-clamp-1">{activity.description}</p>
+                            {activity.patientName && (
+                              <Badge variant="secondary" className="text-[10px] h-5 mt-1">
+                                {activity.patientName}
                               </Badge>
                             )}
                           </div>
                         </div>
                       ))
                     ) : (
-                      <div className="text-center py-6 text-muted-foreground">
-                        <Calendar className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">No upcoming follow-ups</p>
-                      </div>
+                      <div className="text-center py-8 text-muted-foreground">No recent activity</div>
                     )}
                   </CardContent>
-                </Card>
-
-                {/* Recent Activity */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center gap-2">
-                      <Activity className="h-4 w-4 text-green-500" />
-                      Recent Activity
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {recentActivity.length > 0 ? (
-                      recentActivity.slice(0, 5).map((activity) => (
-                        <div key={activity.id} className="flex items-start gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                            activity.type === 'note' ? 'bg-primary/10' :
-                            activity.type === 'visit' ? 'bg-green-100' :
-                            'bg-yellow-100'
-                          }`}>
-                            {activity.type === 'note' && <FileText className="h-4 w-4 text-primary" />}
-                            {activity.type === 'visit' && <Activity className="h-4 w-4 text-green-600" />}
-                            {activity.type === 'risk_update' && <AlertTriangle className="h-4 w-4 text-yellow-600" />}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{activity.title}</p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {activity.patientName || activity.description}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(activity.timestamp).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-6 text-muted-foreground">
-                        <Activity className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">No recent activity</p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Card className="cursor-pointer hover:border-primary/50 transition-colors" onClick={() => onNavigate('patients')}>
-                <CardContent className="flex items-center gap-4 p-6">
-                  <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
-                    <Users className="h-6 w-6 text-blue-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Manage Patients</h3>
-                    <p className="text-sm text-muted-foreground">{stats?.activePatients || 0} active patients</p>
-                  </div>
-                </CardContent>
+                </ScrollArea>
               </Card>
 
-              <Card className="cursor-pointer hover:border-primary/50 transition-colors" onClick={() => onNavigate('settings')}>
-                <CardContent className="flex items-center gap-4 p-6">
-                  <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
-                    <TrendingUp className="h-6 w-6 text-green-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Practice Settings</h3>
-                    <p className="text-sm text-muted-foreground">Configure preferences</p>
+              {/* Visit Types (Horizontal Bar) */}
+              <Card className="shadow-sm">
+                <CardHeader>
+                  <CardTitle>Visit Distribution</CardTitle>
+                  <CardDescription>Breakdown by visit type</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[300px]">
+                    {stats && Object.keys(stats.visitsByType).length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart layout="vertical" data={Object.entries(stats.visitsByType).map(([k, v]) => ({ name: k, value: v }))}>
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                          <XAxis type="number" fontSize={12} />
+                          <YAxis dataKey="name" type="category" width={100} fontSize={12} tickFormatter={(val) => val.charAt(0).toUpperCase() + val.slice(1)} />
+                          <Tooltip cursor={{ fill: 'transparent' }} />
+                          <Bar dataKey="value" fill={COLORS.secondary} radius={[0, 4, 4, 0]} barSize={20} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-muted-foreground">No data available</div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
