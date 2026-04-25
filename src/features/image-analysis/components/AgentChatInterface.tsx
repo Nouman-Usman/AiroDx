@@ -139,10 +139,12 @@ export function AgentChatInterface({ findings, analysisResult, onHighlightFindin
                                                 ul: ({node, ...props}) => <ul className="list-disc list-inside mb-2 space-y-1" {...props} />,
                                                 ol: ({node, ...props}) => <ol className="list-decimal list-inside mb-2 space-y-1" {...props} />,
                                                 li: ({node, ...props}) => <li className="ml-2" {...props} />,
-                                                code: ({node, inline, ...props}) =>
-                                                    inline ?
-                                                    <code className="bg-black/20 px-1.5 py-0.5 rounded text-xs font-mono" {...props} /> :
-                                                    <code className="block bg-black/20 p-2 rounded mb-2 text-xs font-mono overflow-x-auto" {...props} />,
+                                                code: ({node, className, ...props}) => {
+                                                    const isInline = !className?.includes('language-');
+                                                    return isInline ?
+                                                        <code className="bg-black/20 px-1.5 py-0.5 rounded text-xs font-mono" {...props} /> :
+                                                        <code className="block bg-black/20 p-2 rounded mb-2 text-xs font-mono overflow-x-auto" {...props} />;
+                                                },
                                                 pre: ({node, ...props}) => <pre className="mb-2" {...props} />,
                                                 strong: ({node, ...props}) => <strong className="font-bold" {...props} />,
                                                 em: ({node, ...props}) => <em className="italic" {...props} />,
