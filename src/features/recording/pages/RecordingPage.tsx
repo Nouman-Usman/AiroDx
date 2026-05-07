@@ -1,8 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Loader2, AlertCircle, User as UserIcon, ArrowLeft, Search, Plus, UserPlus, Users } from 'lucide-react';
+import { Mic, Square, Loader2, User as UserIcon, ArrowLeft, Search, Plus, UserPlus, Users } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
-import AlertsPanel from '@/components/AlertsPanel';
-import AlertSummaryPanel from '@/components/AlertSummaryPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -17,8 +15,6 @@ import { generateUniqueId } from '@/lib/utils';
 import { useDatabase } from '@/hooks/useDatabase';
 import type { User, Page, Note, Patient } from '@/App';
 import { useAI } from '@/hooks/useAI';
-import type { Alert as AlertType } from '@/types/alerts';
-import { generateSimulatedAlerts } from '@/lib/alertDefinitions';
 import { createVisit, updateVisitRiskAssessment, updatePatientRiskLevel, createPatientRiskHistoryEntry, getPatientVisits, getPatientsByUserId, createPatient, dbPatientToAppPatient } from '@/db/services';
 import { analyzeVisitRisk } from '@/services/riskAssessment';
 import { generatePreVisitBriefing, type PreVisitBriefing } from '@/services/textGeneration';
@@ -59,15 +55,11 @@ export default function RecordingPage({ user, patient: initialPatient, onNavigat
   const [recordingTime, setRecordingTime] = useState(0);
   const [processingStep, setProcessingStep] = useState('');
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [alerts, setAlerts] = useState<AlertType[]>([]);
-  const [showAlertSummary, setShowAlertSummary] = useState(false);
-  const [alertSummaryTimestamp, setAlertSummaryTimestamp] = useState<string>('');
   
   const timerRef = useRef<NodeJS.Timeout>();
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingDurationRef = useRef<number>(0);
-  const alertTimeoutRef = useRef<NodeJS.Timeout>();
   
   const { 
     transcribeClinicalRecording, 
@@ -201,9 +193,6 @@ export default function RecordingPage({ user, patient: initialPatient, onNavigat
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
-      if (alertTimeoutRef.current) {
-        clearTimeout(alertTimeoutRef.current);
-      }
     };
   }, []);
 
@@ -211,7 +200,6 @@ export default function RecordingPage({ user, patient: initialPatient, onNavigat
     try {
       chunksRef.current = [];
       recordingDurationRef.current = 0; // Reset duration
-      setAlerts([]); // Clear previous alerts
       
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -248,15 +236,6 @@ export default function RecordingPage({ user, patient: initialPatient, onNavigat
           return newTime;
         });
       }, 1000);
-
-      // Simulate alerts appearing 5-10 seconds after recording starts
-      alertTimeoutRef.current = setTimeout(() => {
-        if (isRecording) {
-          const newAlerts = generateSimulatedAlerts();
-          setAlerts(newAlerts);
-          toast.info(`${newAlerts.length} clinical alert${newAlerts.length !== 1 ? 's' : ''} detected`);
-        }
-      }, 5000 + Math.random() * 5000); // 5-10 second delay
 
       toast.success('Recording started');
     } catch (error) {
@@ -450,8 +429,6 @@ export default function RecordingPage({ user, patient: initialPatient, onNavigat
 
       setIsProcessing(false);
       setProcessingStep('');
-      setShowAlertSummary(true);
-      setAlertSummaryTimestamp(new Date().toISOString());
       onNoteCreated(note);
       toast.success('Clinical note generated successfully');
       
@@ -471,24 +448,7 @@ export default function RecordingPage({ user, patient: initialPatient, onNavigat
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleDismissAlert = (alertId: string) => {
-    setAlerts(alerts.map(a => 
-      a.id === alertId ? { ...a, dismissed: true } : a
-    ));
-  };
 
-  const handleAddToPlan = (alert: AlertType) => {
-    setAlerts(alerts.map(a =>
-      a.id === alert.id ? { ...a, addedToPlan: true } : a
-    ));
-    toast.success('Actions added to care plan');
-  };
-
-  const handleClearAllAlerts = () => {
-    setAlerts(alerts.map(a => ({ ...a, dismissed: true })));
-  };
-
-  const hasNewAlert = alerts.some(a => !a.dismissed && !a.addedToPlan);
 
   return (
     <DashboardLayout user={user} currentPage={patient ? "patient" : "recording"} onNavigate={onNavigate} onLogout={onLogout}>
@@ -737,16 +697,7 @@ export default function RecordingPage({ user, patient: initialPatient, onNavigat
             </Card>
           )}
 
-          {/* Alert Summary Panel */}
-          {showAlertSummary && alerts.length > 0 && (
-            <AlertSummaryPanel
-              alerts={alerts}
-              timestamp={alertSummaryTimestamp}
-              onDismiss={(id) => handleDismissAlert(id)}
-              onAddToPlan={(alert) => handleAddToPlan(alert)}
-              onClearAll={handleClearAllAlerts}
-            />
-          )}
+
 
           {/* Important Note */}
           <div className="p-3 sm:p-4 bg-amber-50 border border-amber-200 rounded-lg">
@@ -757,18 +708,7 @@ export default function RecordingPage({ user, patient: initialPatient, onNavigat
           </div>
         </div>
 
-        {/* Right Sidebar - Alerts Panel */}
-        <div className="lg:col-span-1">
-          <div className="sticky top-6">
-            <AlertsPanel
-              alerts={alerts}
-              onDismissAlert={handleDismissAlert}
-              onAddToPlan={handleAddToPlan}
-              onClearAll={handleClearAllAlerts}
-              hasNewAlert={hasNewAlert}
-            />
-          </div>
-        </div>
+        {/* Right Sidebar - Alerts Panel - Removed */}
       </div>
 
       {/* New Patient Dialog */}
