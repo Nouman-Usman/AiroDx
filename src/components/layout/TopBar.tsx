@@ -1,4 +1,3 @@
-import { Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { User as AppUser } from '@/App';
@@ -23,11 +22,6 @@ export function TopBar({ user, currentPage }: TopBarProps) {
       </div>
 
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground">
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-background" />
-        </Button>
-        <div className="h-8 w-px bg-border/60 mx-1" />
         <div className="flex items-center gap-3">
           <div className="text-right">
             <p className="text-sm font-medium leading-none">Dr. {user.name.split(' ').pop()}</p>
